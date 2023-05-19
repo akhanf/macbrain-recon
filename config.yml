@@ -1,0 +1,22 @@
+in_raw_slice: '../macbrain-downloader/raw_download/sub-{subject}/sub-{subject}_stain-{stain}_downsample-{downsample}/sub-{subject}_stain-{stain}_downsample-{downsample}_slice-{slice}.jpg'
+
+in_raw_dir: '../macbrain-downloader/raw_download/sub-{subject}/sub-{subject}_stain-{stain}_downsample-{downsample}'
+
+sample_wildcards:
+  subject: '{subject}'
+  stain: '{stain}'
+  downsample: '{downsample}'
+
+slice_wildcards:
+  subject: '{subject}'
+  stain: '{stain}'
+  downsample: '{downsample}'
+  slice: '{slice}'
+
+
+root: results
+
+orig_resolution_um: 0.5045
+slice_thickness_um: 50 
+every_n_slices: 20
+orient: RSA #orientation after stacking (stacked 2d are RIA; this reorients to RSA)

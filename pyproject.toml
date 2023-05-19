@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "macbrain-recon"
+version = "0.1.0"
+description = ""
+authors = ["Ali Khan <alik@robarts.ca>"]
+readme = "README.md"
+packages = [{include = "macbrain_recon"}]
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.12"
+snakebids = "^0.8.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
