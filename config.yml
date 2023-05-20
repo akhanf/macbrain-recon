@@ -2,6 +2,9 @@ in_raw_slice: '../macbrain-downloader/raw_download/sub-{subject}/sub-{subject}_s
 
 in_raw_dir: '../macbrain-downloader/raw_download/sub-{subject}/sub-{subject}_stain-{stain}_downsample-{downsample}'
 
+
+in_url: 'https://macbraingallery.yale.edu/collection6/{subject}-{stain}/'
+
 sample_wildcards:
   subject: '{subject}'
   stain: '{stain}'
@@ -22,3 +25,12 @@ every_n_slices: 20
 orient: RSA #orientation after stacking (stacked 2d are RIA; this reorients to RSA)
 
 template_brain: 'resources/D99_v2.0_dist/D99_template.nii.gz'
+
+
+subjects:
+ - B79
+stains:
+ - Nissl
+downsamples:
+ - 512
+final_stage: 1

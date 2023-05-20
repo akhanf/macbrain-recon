@@ -1,5 +1,6 @@
 from snakebids import bids
 import numpy as np
+from math import log2
 
 configfile: 'config.yml'
 
@@ -15,11 +16,25 @@ wildcard_constraints:
 
 rule all:
     input:
-        stack=expand(bids(root=root,**sample_wildcards,desc='preproc',stage='{stage}',suffix='zstack.nii'),subject='B79',stain='Nissl',downsample=128,stage=3)       
+        stack=expand(bids(root=root,**sample_wildcards,desc='preproc',stage='{stage}',suffix='zstack.nii'),
+            subject=config['subjects'],
+            stain=config['stains'],
+            downsample=config['downsamples'],
+            stage=config['final_stage'])
+
+rule download_data:
+    params:
+        in_url=config['in_url'],
+        script='scripts/get_dzi.js',
+        dspow=lambda wildcards: int(log2(int(wildcards.downsample)))
+    output:
+        raw_dir=directory(bids(root=root,**sample_wildcards,desc='raw',suffix='slices'))
+    shell:
+        'node {params.script} --base-url {params.in_url} --subject {wildcards.subject} --stain {wildcards.stain} --dspow  {params.dspow} --out-dir {output.raw_dir}'
 
 checkpoint get_number_slices:
     input:
-        slice_dir=config['in_raw_dir']
+        slice_dir=bids(root=root,**sample_wildcards,desc='raw',suffix='slices')
     output:
         bids(root=root,**sample_wildcards,suffix='numslices.txt')
     shell:
@@ -27,7 +42,7 @@ checkpoint get_number_slices:
 
 rule conform_slices_to_same_size:
     input: 
-        slice_dir=config['in_raw_dir'],
+        slice_dir=bids(root=root,**sample_wildcards,desc='raw',suffix='slices'),
         conform_script='scripts/conform_slices.sh'
     output:
         slice_dir=directory(bids(root=root,**sample_wildcards,desc='conformed',suffix='slices'))
@@ -143,8 +158,9 @@ rule register_slices:
         template_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='rigidtemplate',slice='{slice}',suffix='T1w.nii'),
         hist_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='hist.nii')
     params:
-        affine_opts='-ia-image-centers -dof 6 -m NMI -search 2000 flip 0',
-        nlin_opts='-m NMI -n 100x100',
+        affine_opts='-ia-image-centers -dof 6 -m MI  ',#-search 2000 flip 0',
+        nlin_opts='-m NMI -n 10x10',
+
     output:
         nlin_warp=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='warp.nii'),
         affine_xfm=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='xfm.txt'),
