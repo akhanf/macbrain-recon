@@ -79,12 +79,31 @@ rule extract_lh_template:
 
 rule reg_stack_to_template_hemi:
     input:
-        moving=bids(root=root,subject='template',hemi='L',suffix='T1w.nii.gz'),
-        fixed=bids(root=root,**sample_wildcards,desc='masked',suffix='zstack.nii.gz')
+        fixed=bids(root=root,subject='template',hemi='L',suffix='T1w.nii.gz'),
+        moving=bids(root=root,**sample_wildcards,desc='masked',suffix='zstack.nii.gz')
     output:
-        xfm=bids(root=root,**sample_wildcards,desc='rigid',suffix='xfm.txt'),
+        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='hist',to='template',suffix='xfm.txt'),
+    shell:
+        'greedy -d 3 -i {input.fixed} {input.moving} -o {output.xfm} -a -dof 6 -ia-image-centers'
+
+
+rule invert_transform:
+    input:
+        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='hist',to='template',suffix='xfm.txt'),
+    output:
+        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='template',to='hist',suffix='xfm.txt'),
+    shell:
+        'c3d_affine_tool {input} -inv -o {output}'
+    
+
+rule transform_template_to_stack:
+    input:
+        moving=bids(root=root,subject='template',hemi='L',suffix='T1w.nii.gz'),
+        fixed=bids(root=root,**sample_wildcards,desc='masked',suffix='zstack.nii.gz'),
+        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='template',to='hist',suffix='xfm.txt'),
+    output:
         warped=bids(root=root,**sample_wildcards,desc='rigidtemplate',suffix='T1w.nii.gz')
     shell:
-        'greedy -d 3 -i {input.fixed} {input.moving} -o {output.xfm} -a -dof 6 -ia-image-centers && '
-        'greedy -d 3 -r {output.xfm} -rf {input.fixed} -rm {input.moving} {output.warped}'
+        'greedy -d 3 -r {input.xfm} -rf {input.fixed} -rm {input.moving} {output.warped}'
+
 
