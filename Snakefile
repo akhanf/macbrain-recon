@@ -1,4 +1,5 @@
 from snakebids import bids
+import numpy as np
 
 configfile: 'config.yml'
 
@@ -14,7 +15,15 @@ wildcard_constraints:
 
 rule all:
     input:
-        stack=expand(bids(root=root,**sample_wildcards,suffix='zstack.nii.gz'),subject='B79',stain='Nissl',downsample=128)
+        stack=expand(bids(root=root,**sample_wildcards,desc='preproc',stage='{stage}',suffix='zstack.nii'),subject='B79',stain='Nissl',downsample=128,stage=3)       
+
+checkpoint get_number_slices:
+    input:
+        slice_dir=config['in_raw_dir']
+    output:
+        bids(root=root,**sample_wildcards,suffix='numslices.txt')
+    shell:
+        'ls {input}/*.jpg | wc -l > {output}'
 
 rule conform_slices_to_same_size:
     input: 
@@ -46,73 +55,130 @@ rule zstack:
         spacing=get_spacing,
         orient=config['orient']
     output:
-        stack=bids(root=root,**sample_wildcards,suffix='zstack.nii.gz')
+        stack=bids(root=root,**sample_wildcards,suffix='zstack.nii')
     shell:
         'c3d {input.slice_dir}/* -tile z -spacing {params.spacing} -orient {params.orient} {output.stack}' 
 
 
 rule create_mask:
     input:
-        stack=bids(root=root,**sample_wildcards,suffix='zstack.nii.gz')
+        stack=bids(root=root,**sample_wildcards,suffix='zstack.nii')
     output:
-        mask=bids(root=root,**sample_wildcards,suffix='mask.nii.gz')
+        mask=bids(root=root,**sample_wildcards,suffix='mask.nii')
     shell:
         'c3d {input.stack} -threshold 235 256 0 1 {output.mask}' 
 
 rule apply_mask:
     input:
-        stack=bids(root=root,**sample_wildcards,suffix='zstack.nii.gz'),
-        mask=bids(root=root,**sample_wildcards,suffix='mask.nii.gz')
+        stack=bids(root=root,**sample_wildcards,suffix='zstack.nii'),
+        mask=bids(root=root,**sample_wildcards,suffix='mask.nii')
     output:
-        masked=bids(root=root,**sample_wildcards,desc='masked',suffix='zstack.nii.gz')
+        preproc=bids(root=root,**sample_wildcards,desc='preproc',stage=0,suffix='zstack.nii')
     shell:
-        'c3d {input.stack} {input.mask} -multiply -o {output.masked}'
+        'c3d {input.stack} {input.mask} -multiply -o {output.preproc}'
 
 
 rule extract_lh_template:
     input:
         template=config['template_brain']
     output:
-        hemi=bids(root=root,subject='template',hemi='L',suffix='T1w.nii.gz')
+        hemi=bids(root=root,subject='template',hemi='L',suffix='T1w.nii')
     shell:
         'c3d {input.template} -cmv -pop -pop  -thresh 50% inf 0 1 -as MASK {input.template} -times -o {output.hemi}'
 
 rule reg_stack_to_template_hemi:
     input:
-        fixed=bids(root=root,subject='template',hemi='L',suffix='T1w.nii.gz'),
-        moving=bids(root=root,**sample_wildcards,desc='masked',suffix='zstack.nii.gz')
+        fixed=bids(root=root,subject='template',hemi='L',suffix='T1w.nii'),
+        moving=bids(root=root,**sample_wildcards,desc='preproc',stage='{stage}',suffix='zstack.nii')
     output:
-        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='hist',to='template',suffix='xfm.txt'),
+        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='hist',to='template',stage='{stage}',suffix='xfm.txt'),
+    log: 
+        bids(root='logs',**sample_wildcards,datatype='reg_stack_to_template_hemi',stage='{stage}',suffix='log.txt')
+    threads: 16
     shell:
-        'greedy -d 3 -i {input.fixed} {input.moving} -o {output.xfm} -a -dof 6 -ia-image-centers'
+        'greedy -threads {threads} -d 3 -i {input.fixed} {input.moving} -o {output.xfm} -a -dof 6 -ia-image-centers > {log}'
 
 
 rule invert_transform:
     input:
-        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='hist',to='template',suffix='xfm.txt'),
+        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='hist',to='template',stage='{stage}',suffix='xfm.txt'),
     output:
-        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='template',to='hist',suffix='xfm.txt'),
+        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='template',to='hist',stage='{stage}',suffix='xfm.txt'),
     shell:
         'c3d_affine_tool {input} -inv -o {output}'
     
 
 rule transform_template_to_stack:
     input:
-        moving=bids(root=root,subject='template',hemi='L',suffix='T1w.nii.gz'),
-        fixed=bids(root=root,**sample_wildcards,desc='masked',suffix='zstack.nii.gz'),
-        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='template',to='hist',suffix='xfm.txt'),
+        moving=bids(root=root,subject='template',hemi='L',suffix='T1w.nii'),
+        fixed=bids(root=root,**sample_wildcards,desc='preproc',stage='{stage}',suffix='zstack.nii'),
+        xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='template',to='hist',stage='{stage}',suffix='xfm.txt'),
     output:
-        warped=bids(root=root,**sample_wildcards,desc='rigidtemplate',suffix='T1w.nii.gz')
+        warped=bids(root=root,**sample_wildcards,desc='rigidtemplate',stage='{stage}',suffix='T1w.nii')
+    log: 
+        bids(root='logs',**sample_wildcards,datatype='transform_template_to_stack',stage='{stage}',suffix='log.txt')
+    threads: 4
     shell:
-        'greedy -d 3 -r {input.xfm} -rf {input.fixed} -rm {input.moving} {output.warped}'
-
-""" scratch for 2d reg:
-
-c3d results/sub-B79/sub-B79_desc-rigidtemplate_stain-Nissl_downsample-128_T1w.nii.gz -slice z 15 -o test_15_template.nii.gz
-c3d results/sub-B79/sub-B79_desc-masked_stain-Nissl_downsample-128_zstack.nii.gz -slice z 15 -o test_15_hist.nii.gz
-greedy -d 2 -i test_15_template.nii.gz test_15_hist.nii.gz -o warp_15_hist_to_template.nii.gz  -m NMI -ia-image-centers
-greedy -d 2 -r warp_15_hist_to_template.nii.gz -rf test_15_template.nii.gz -rm test_15_hist.nii.gz warped_15_hist.nii.gz 
-c3d warped_15_hist.nii.gz -orient RSA warped_15_hist_reorient.nii.gz
+        'greedy -threads {threads} -d 3 -r {input.xfm} -rf {input.fixed} -rm {input.moving} {output.warped} > {log}'
 
 
-"""
+rule extract_template_slice:
+    input:
+        template_vol=bids(root=root,**sample_wildcards,desc='rigidtemplate',stage='{stage}',suffix='T1w.nii')
+    output:
+        template_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='rigidtemplate',slice='{slice}',suffix='T1w.nii')
+    shell:
+        'c3d {input} -slice z {wildcards.slice} -o {output}'
+
+rule extract_hist_slice:
+    input:
+        hist_stack=bids(root=root,**sample_wildcards,desc='preproc',stage='{stage}',suffix='zstack.nii'),
+    output:
+        hist_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='hist.nii')
+    shell:
+        'c3d {input} -slice z {wildcards.slice} -o {output}'
+
+rule register_slices:
+    input:
+        template_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='rigidtemplate',slice='{slice}',suffix='T1w.nii'),
+        hist_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='hist.nii')
+    params:
+        affine_opts='-ia-image-centers -dof 6 -m NMI -search 2000 flip 0',
+        nlin_opts='-m NMI -n 100x100',
+    output:
+        nlin_warp=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='warp.nii'),
+        affine_xfm=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='xfm.txt'),
+        hist_warped=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='warped',slice='{slice}',suffix='hist.nii')
+    threads: 4
+    log: 
+        bids(root='logs',**sample_wildcards,datatype='register_slices',stage='{stage}',slice='{slice}',suffix='log.txt') 
+    shell:
+        'greedy -threads {threads} -d 2 -i {input.template_slice} {input.hist_slice} -o {output.affine_xfm} -a {params.affine_opts} > {log} && ' 
+        'greedy -threads {threads} -d 2 -i {input.template_slice} {input.hist_slice} -o {output.nlin_warp} -it {output.affine_xfm} {params.nlin_opts} >> {log} && '
+        'greedy -threads {threads} -d 2 -r {output.nlin_warp} {output.affine_xfm} -rf {input.template_slice} -rm {input.hist_slice} {output.hist_warped} >> {log} '
+
+def get_registered_hist_slices(wildcards):
+    checkpoint_output = checkpoints.get_number_slices.get(**wildcards).output[0]
+    #read the text file to get the number of slices
+    n_slices = np.loadtxt(checkpoint_output, dtype=int)
+    prev_stage = int(wildcards.stage) - 1
+    hist_slices=expand(bids(root=root,**sample_wildcards,datatype='reg2d_stage-{prev_stage}',desc='warped',slice='{slice}',suffix='hist.nii'),
+            **wildcards,
+            prev_stage=prev_stage,
+            slice=range(n_slices))
+    return hist_slices
+
+
+rule stack_registered_slices:
+    input:
+        hist_slices=get_registered_hist_slices   
+    params:
+        spacing=get_spacing,
+        orient=config['orient']
+    output:
+        hist_stack=bids(root=root,**sample_wildcards,desc='preproc',stage='{stage,[1-9][0-9]*}',suffix='zstack.nii'),
+    shell:
+        'c3d {input.hist_slices} -tile z -spacing {params.spacing} -orient {params.orient} {output.hist_stack}' 
+
+
+
