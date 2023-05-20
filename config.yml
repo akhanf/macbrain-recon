@@ -20,3 +20,5 @@ orig_resolution_um: 0.5045
 slice_thickness_um: 50 
 every_n_slices: 20
 orient: RSA #orientation after stacking (stacked 2d are RIA; this reorients to RSA)
+
+template_brain: 'resources/D99_v2.0_dist/D99_template.nii.gz'

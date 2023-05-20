@@ -6,7 +6,16 @@ sample_wildcards=config['sample_wildcards']
 slice_wildcards=config['slice_wildcards']
 root=config['root']
 
-  
+wildcard_constraints:
+    downsample='[0-9]+',
+    subject='[a-zA-Z0-9]+',
+    stain='[a-zA-Z0-9]+'
+
+
+rule all:
+    input:
+        stack=expand(bids(root=root,**sample_wildcards,suffix='zstack.nii.gz'),subject='B79',stain='Nissl',downsample=128)
+
 rule conform_slices_to_same_size:
     input: 
         slice_dir=config['in_raw_dir'],
@@ -30,7 +39,6 @@ rule convert_to_grayscale_nii:
     shell:
         'mkdir -p {output.slice_dir} && c3d {input.slice_dir}/* -slice-all z 0:-1 -oo {output.slice_dir}/%03d.nii'
     
-    
 rule zstack:
     input:
         slice_dir=directory(bids(root=root,**sample_wildcards,desc='grayscale',suffix='slices'))
@@ -42,4 +50,41 @@ rule zstack:
     shell:
         'c3d {input.slice_dir}/* -tile z -spacing {params.spacing} -orient {params.orient} {output.stack}' 
 
+
+rule create_mask:
+    input:
+        stack=bids(root=root,**sample_wildcards,suffix='zstack.nii.gz')
+    output:
+        mask=bids(root=root,**sample_wildcards,suffix='mask.nii.gz')
+    shell:
+        'c3d {input.stack} -threshold 235 256 0 1 {output.mask}' 
+
+rule apply_mask:
+    input:
+        stack=bids(root=root,**sample_wildcards,suffix='zstack.nii.gz'),
+        mask=bids(root=root,**sample_wildcards,suffix='mask.nii.gz')
+    output:
+        masked=bids(root=root,**sample_wildcards,desc='masked',suffix='zstack.nii.gz')
+    shell:
+        'c3d {input.stack} {input.mask} -multiply -o {output.masked}'
+
+
+rule extract_lh_template:
+    input:
+        template=config['template_brain']
+    output:
+        hemi=bids(root=root,subject='template',hemi='L',suffix='T1w.nii.gz')
+    shell:
+        'c3d {input.template} -cmv -pop -pop  -thresh 50% inf 0 1 -as MASK {input.template} -times -o {output.hemi}'
+
+rule reg_stack_to_template_hemi:
+    input:
+        moving=bids(root=root,subject='template',hemi='L',suffix='T1w.nii.gz'),
+        fixed=bids(root=root,**sample_wildcards,desc='masked',suffix='zstack.nii.gz')
+    output:
+        xfm=bids(root=root,**sample_wildcards,desc='rigid',suffix='xfm.txt'),
+        warped=bids(root=root,**sample_wildcards,desc='rigidtemplate',suffix='T1w.nii.gz')
+    shell:
+        'greedy -d 3 -i {input.fixed} {input.moving} -o {output.xfm} -a -dof 6 -ia-image-centers && '
+        'greedy -d 3 -r {output.xfm} -rf {input.fixed} -rm {input.moving} {output.warped}'
 
