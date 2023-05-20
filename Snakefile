@@ -106,4 +106,13 @@ rule transform_template_to_stack:
     shell:
         'greedy -d 3 -r {input.xfm} -rf {input.fixed} -rm {input.moving} {output.warped}'
 
+""" scratch for 2d reg:
 
+c3d results/sub-B79/sub-B79_desc-rigidtemplate_stain-Nissl_downsample-128_T1w.nii.gz -slice z 15 -o test_15_template.nii.gz
+c3d results/sub-B79/sub-B79_desc-masked_stain-Nissl_downsample-128_zstack.nii.gz -slice z 15 -o test_15_hist.nii.gz
+greedy -d 2 -i test_15_template.nii.gz test_15_hist.nii.gz -o warp_15_hist_to_template.nii.gz  -m NMI -ia-image-centers
+greedy -d 2 -r warp_15_hist_to_template.nii.gz -rf test_15_template.nii.gz -rm test_15_hist.nii.gz warped_15_hist.nii.gz 
+c3d warped_15_hist.nii.gz -orient RSA warped_15_hist_reorient.nii.gz
+
+
+"""
