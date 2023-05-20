@@ -111,7 +111,7 @@ rule reg_stack_to_template_hemi:
         bids(root='logs',**sample_wildcards,datatype='reg_stack_to_template_hemi',stage='{stage}',suffix='log.txt')
     threads: 16
     shell:
-        'greedy -threads {threads} -d 3 -i {input.fixed} {input.moving} -o {output.xfm} -a -dof 6 -ia-image-centers > {log}'
+        'greedy -threads {threads} -d 3 -i {input.fixed} {input.moving} -o {output.xfm} -moments 2  > {log}'
 
 
 rule invert_transform:
@@ -153,13 +153,25 @@ rule extract_hist_slice:
     shell:
         'c3d {input} -slice z {wildcards.slice} -o {output}'
 
+
+def get_nlin_opts_reg_slices(wildcards):
+    stage = int(wildcards.stage)
+    num_iters = stage*10
+    if stage in config['nlin_opt_schedule']:
+        opts = config['nlin_opt_schedule'][stage]
+    else:
+        opts = config['nlin_opt_schedule']['N']
+    
+    return f'-m NMI {opts}'
+
 rule register_slices:
     input:
         template_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='rigidtemplate',slice='{slice}',suffix='T1w.nii'),
         hist_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='hist.nii')
     params:
-        affine_opts='-ia-image-centers -dof 6 -m MI  ',#-search 2000 flip 0',
-        nlin_opts='-m NMI -n 10x10',
+        #affine_opts='-a -ia-image-centers -dof 6 -m MI  ',#-search 2000 flip 0',
+        affine_opts='-moments 2 ',#-search 2000 flip 0',
+        nlin_opts=get_nlin_opts_reg_slices,
 
     output:
         nlin_warp=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='warp.nii'),
@@ -169,7 +181,7 @@ rule register_slices:
     log: 
         bids(root='logs',**sample_wildcards,datatype='register_slices',stage='{stage}',slice='{slice}',suffix='log.txt') 
     shell:
-        'greedy -threads {threads} -d 2 -i {input.template_slice} {input.hist_slice} -o {output.affine_xfm} -a {params.affine_opts} > {log} && ' 
+        'greedy -threads {threads} -d 2 -i {input.template_slice} {input.hist_slice} -o {output.affine_xfm} {params.affine_opts} > {log} && ' 
         'greedy -threads {threads} -d 2 -i {input.template_slice} {input.hist_slice} -o {output.nlin_warp} -it {output.affine_xfm} {params.nlin_opts} >> {log} && '
         'greedy -threads {threads} -d 2 -r {output.nlin_warp} {output.affine_xfm} -rf {input.template_slice} -rm {input.hist_slice} {output.hist_warped} >> {log} '
 
