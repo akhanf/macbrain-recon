@@ -33,12 +33,14 @@ stains:
  - Nissl
 downsamples:
  - 512
-final_stage: 5
+ # - 256
+   # - 128
+final_stage: 1
 
 
 nlin_opt_schedule:
-  0: '-n 10x0'
-  1: '-n 20x10'
-  2: '-n 30x20'
-  3: '-n 40x30'
-  N: '-n 50x50'
+  0: '-s 20vox 10vox -n 20x10'
+  1: '-s 10vox 5vox -n 20x10'
+  2: '-s 8vox 4vox -n 20x10'
+  N: '-s 6vox 3vox -n 20x10'
+

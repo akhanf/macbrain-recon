@@ -74,24 +74,26 @@ rule zstack:
     shell:
         'c3d {input.slice_dir}/* -tile z -spacing {params.spacing} -orient {params.orient} {output.stack}' 
 
-
 rule create_mask:
     input:
         stack=bids(root=root,**sample_wildcards,suffix='zstack.nii')
     output:
         mask=bids(root=root,**sample_wildcards,suffix='mask.nii')
     shell:
-        'c3d {input.stack} -threshold 235 256 0 1 {output.mask}' 
+        'c3d {input.stack} -threshold 230 Inf 0 1 {output.mask}' 
+ 
 
-rule apply_mask:
+rule preproc_stack:
     input:
         stack=bids(root=root,**sample_wildcards,suffix='zstack.nii'),
         mask=bids(root=root,**sample_wildcards,suffix='mask.nii')
     output:
-        preproc=bids(root=root,**sample_wildcards,desc='preproc',stage=0,suffix='zstack.nii')
+        stack=bids(root=root,**sample_wildcards,desc='preproc',stage=0,suffix='zstack.nii')
     shell:
-        'c3d {input.stack} {input.mask} -multiply -o {output.preproc}'
+        #'c3d {input.stack} -shift -230 -scale -1 -pad 5x5x0mm 5x5x0mm 0 -clip 0 95%  -o {output.stack}'
+        'c3d {input.stack} {input.mask} -multiply -pad 5x5x0mm 5x5x0mm 0 -clip 0 95%  -o {output.stack}'
 
+    
 
 rule extract_lh_template:
     input:
@@ -101,17 +103,22 @@ rule extract_lh_template:
     shell:
         'c3d {input.template} -cmv -pop -pop  -thresh 50% inf 0 1 -as MASK {input.template} -times -o {output.hemi}'
 
+
+
 rule reg_stack_to_template_hemi:
     input:
         fixed=bids(root=root,subject='template',hemi='L',suffix='T1w.nii'),
         moving=bids(root=root,**sample_wildcards,desc='preproc',stage='{stage}',suffix='zstack.nii')
+    params:
+        reg_opts='-moments 2'
+#        reg_opts='-a -m NMI -ia-image-centers -dof 6'
     output:
         xfm=bids(root=root,**sample_wildcards,desc='rigid',from_='hist',to='template',stage='{stage}',suffix='xfm.txt'),
     log: 
         bids(root='logs',**sample_wildcards,datatype='reg_stack_to_template_hemi',stage='{stage}',suffix='log.txt')
     threads: 16
     shell:
-        'greedy -threads {threads} -d 3 -i {input.fixed} {input.moving} -o {output.xfm} -moments 2  > {log}'
+        'greedy -threads {threads} -d 3 -i {input.fixed} {input.moving} -o {output.xfm} {params.reg_opts}  > {log}'
 
 
 rule invert_transform:
@@ -147,7 +154,7 @@ rule extract_template_slice:
 
 rule extract_hist_slice:
     input:
-        hist_stack=bids(root=root,**sample_wildcards,desc='preproc',stage='{stage}',suffix='zstack.nii'),
+        hist_stack=bids(root=root,**sample_wildcards,desc='preproc',stage='0',suffix='zstack.nii'), #always pull the histology slice from the original stage (ie so errors don't compound..)
     output:
         hist_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='hist.nii')
     shell:
@@ -169,19 +176,22 @@ rule register_slices:
         template_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='rigidtemplate',slice='{slice}',suffix='T1w.nii'),
         hist_slice=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='hist.nii')
     params:
-        #affine_opts='-a -ia-image-centers -dof 6 -m MI  ',#-search 2000 flip 0',
-        affine_opts='-moments 2 ',#-search 2000 flip 0',
+#        affine_opts='-a -ia-image-centers -dof 6 -m NMI -search 1000 any 30',
+        moment_opts='-moments 2 ',
+        affine_opts='-a -dof 6 -m CC -search 2000 flip 5',
         nlin_opts=get_nlin_opts_reg_slices,
 
     output:
         nlin_warp=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='warp.nii'),
-        affine_xfm=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='xfm.txt'),
+        moment_xfm=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='momentxfm.txt'),
+        affine_xfm=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='preproc',slice='{slice}',suffix='affinexfm.txt'),
         hist_warped=bids(root=root,**sample_wildcards,datatype='reg2d_stage-{stage}',desc='warped',slice='{slice}',suffix='hist.nii')
     threads: 4
     log: 
         bids(root='logs',**sample_wildcards,datatype='register_slices',stage='{stage}',slice='{slice}',suffix='log.txt') 
     shell:
-        'greedy -threads {threads} -d 2 -i {input.template_slice} {input.hist_slice} -o {output.affine_xfm} {params.affine_opts} > {log} && ' 
+        'greedy -threads {threads} -d 2 -i {input.template_slice} {input.hist_slice} -o {output.moment_xfm} {params.moment_opts} > {log} && ' 
+        'greedy -threads {threads} -d 2 -i {input.template_slice} {input.hist_slice} -o {output.affine_xfm} -ia {output.moment_xfm} {params.affine_opts} >> {log} && ' 
         'greedy -threads {threads} -d 2 -i {input.template_slice} {input.hist_slice} -o {output.nlin_warp} -it {output.affine_xfm} {params.nlin_opts} >> {log} && '
         'greedy -threads {threads} -d 2 -r {output.nlin_warp} {output.affine_xfm} -rf {input.template_slice} -rm {input.hist_slice} {output.hist_warped} >> {log} '
 
